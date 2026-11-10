@@ -12,37 +12,56 @@ jest.mock('../../../actions/auth', () => ({ register: jest.fn() }));
 
 const renderSignUp = (isAuthenticated = false) => {
   const store = createStore((state = { auth: { isAuthenticated } }) => state);
-  return render(<Provider store={store}><MemoryRouter initialEntries={['/register']}>
-    <Route path="/register" component={SignUp} /><Route path="/dashboard" render={() => <div>Dashboard Page</div>} />
-  </MemoryRouter></Provider>);
+  return render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={['/register']}>
+        <Route path="/register" component={SignUp} />
+        <Route path="/dashboard" render={() => <div>Dashboard Page</div>} />
+      </MemoryRouter>
+    </Provider>
+  );
+};
+
+const fillRequiredFields = (confirmation = 'secret123') => {
+  fireEvent.change(document.querySelector('input[name="name"]'), {
+    target: { name: 'name', value: 'Alice' },
+  });
+  fireEvent.change(document.querySelector('input[name="email"]'), {
+    target: { name: 'email', value: 'alice@example.com' },
+  });
+  fireEvent.change(document.querySelector('input[name="password1"]'), {
+    target: { name: 'password1', value: 'secret123' },
+  });
+  fireEvent.change(document.querySelector('input[name="password2"]'), {
+    target: { name: 'password2', value: confirmation },
+  });
 };
 
 describe('SignUp component', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  const fillRequiredFields = (passwordConfirmation = 'secret123') => {
-    fireEvent.change(screen.getByLabelText('Name'), { target: { name: 'name', value: 'Alice' } });
-    fireEvent.change(screen.getByLabelText('Email'), { target: { name: 'email', value: 'alice@example.com' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { name: 'password1', value: 'secret123' } });
-    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { name: 'password2', value: passwordConfirmation } });
-  };
-
-  it('alerts if passwords do not match', () => {
+  it('shows an alert when passwords do not match', () => {
     renderSignUp();
     fillRequiredFields('different123');
-    fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
+    fireEvent.submit(document.querySelector('form'));
+
     expect(setAlert).toHaveBeenCalledWith('Password do not match', 'danger');
     expect(register).not.toHaveBeenCalled();
   });
 
-  it('registers matching credentials', () => {
+  it('registers user when passwords match', () => {
     renderSignUp();
     fillRequiredFields();
-    fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
-    expect(register).toHaveBeenCalledWith({ name: 'Alice', email: 'alice@example.com', password: 'secret123' });
+    fireEvent.submit(document.querySelector('form'));
+
+    expect(register).toHaveBeenCalledWith({
+      name: 'Alice',
+      email: 'alice@example.com',
+      password: 'secret123',
+    });
   });
 
-  it('redirects authenticated users', () => {
+  it('redirects authenticated users to dashboard', () => {
     renderSignUp(true);
     expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
   });
