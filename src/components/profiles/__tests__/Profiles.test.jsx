@@ -3,59 +3,42 @@ import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 import { MemoryRouter } from 'react-router-dom';
-import Dashboard from '../Dashboard';
+import Profiles from '../Profiles';
+import { getProfiles } from '../../../actions/profile';
 
-jest.mock('../../../actions/profile', () => ({
-  getCurrentProfile: jest.fn(),
-  delAccount: jest.fn(),
-}));
+jest.mock('../../../actions/profile', () => ({ getProfiles: jest.fn() }));
 
-describe('Dashboard integration', () => {
-  const renderDashboard = (stateOverrides = {}) => {
-    const defaultState = {
-      auth: {
-        user: { _id: 'user-1', name: 'Alice' },
-      },
-      profile: {
-        profile: null,
-        loading: false,
-      },
-    };
+const renderProfiles = (profiles, loading = false) => {
+  const store = createStore((state = { profile: { profiles, loading } }) => state);
+  return render(<Provider store={store}><MemoryRouter><Profiles /></MemoryRouter></Provider>);
+};
 
-    const store = createStore((currentState = { ...defaultState, ...stateOverrides }) => currentState);
+describe('Profiles integration', () => {
+  beforeEach(() => jest.clearAllMocks());
 
-    render(
-      <Provider store={store}>
-        <MemoryRouter>
-          <Dashboard />
-        </MemoryRouter>
-      </Provider>
-    );
-  };
-
-  it('shows the create profile prompt when the user has no profile', () => {
-    renderDashboard();
-
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText(/hello alice/i)).toBeInTheDocument();
-    expect(screen.getByText(/click the below button to create your profile/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /let's go/i })).toBeInTheDocument();
+  it('requests profiles and renders spinner while loading', () => {
+    renderProfiles([], true);
+    expect(getProfiles).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.fa-spin')).toBeInTheDocument();
   });
 
-  it('renders the user dashboard when a profile exists', () => {
-    renderDashboard({
-      profile: {
-        profile: {
-          user: { avatar: 'https://example.com/avatar.png' },
-          experience: [],
-          education: [],
-        },
-        loading: false,
-      },
-    });
+  it('renders profile cards with profile link and skills', () => {
+    renderProfiles([{
+      _id: 'profile-1',
+      user: { _id: 'user-1', name: 'Alice', avatar: 'https://example.com/alice.png' },
+      status: 'Developer', company: 'Acme', location: 'Toronto', skills: ['React', 'Node', 'JavaScript', 'CSS', 'Hidden'],
+    }]);
+    expect(screen.getByRole('heading', { name: 'Our Community' })).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByText('Developer')).toBeInTheDocument();
+    expect(screen.getByText('Toronto')).toBeInTheDocument();
+    expect(screen.getByText('React')).toBeInTheDocument();
+    expect(screen.queryByText('Hidden')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /view profile/i }).closest('a')).toHaveAttribute('href', '/profile/user-1');
+  });
 
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText(/hello alice/i)).toBeInTheDocument();
-    expect(screen.getByText('Delete My Account')).toBeInTheDocument();
+  it('renders empty state for no profiles', () => {
+    renderProfiles([]);
+    expect(screen.getByText('No Profiles found')).toBeInTheDocument();
   });
 });

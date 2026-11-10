@@ -1,170 +1,93 @@
 import axios from 'axios';
-import {
-  getProfiles,
-  getProfileById,
-  getGithubRepos,
-  getCurrentProfile,
-  makeProfile,
-  addExperience,
-  addEducation,
-  delExperience,
-  delEducation,
-  delAccount,
-} from '../profile';
-import {
-  GET_ALL_PROFILES,
-  PROFILE_ERROR,
-  GET_PROFILE,
-  GET_REPOS,
-  UPDATE_PROFILE,
-  CLEAR_PROFILE,
-  DELETE_PROFILE,
-} from '../constants';
+import { fetchPosts, addLike, removeLike, removePost, addPost, fetchPost, addComment, removeComment } from '../post';
+import { GET_POSTS, POST_ERROR, UPDATE_LIKES, UPDATE_DISLIKES, ADD_POSTS, GET_POST, UPDATE_COMMENTS } from '../constants';
 
 jest.mock('axios');
 
-describe('profile actions', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+describe('post actions', () => {
+  beforeEach(() => jest.clearAllMocks());
+  const dispatch = () => jest.fn();
+  const error = { response: { statusText: 'Server Error', status: 500 } };
+
+  it('fetches feed and single post', async () => {
+    const send = dispatch();
+    axios.get.mockResolvedValueOnce({ data: [{ _id: 'p1' }] }).mockResolvedValueOnce({ data: { _id: 'p1', comments: [] } });
+    await fetchPosts()(send);
+    await fetchPost('p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: GET_POSTS, payload: [{ _id: 'p1' }] });
+    expect(send).toHaveBeenCalledWith({ type: GET_POST, payload: { _id: 'p1', comments: [] } });
   });
 
-  it('gets all profiles successfully', async () => {
-    axios.get.mockResolvedValue({ data: [{ _id: '1', user: { name: 'Alice' } }] });
-    const dispatch = jest.fn();
-
-    await getProfiles()(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith({
-      type: GET_ALL_PROFILES,
-      payload: [{ _id: '1', user: { name: 'Alice' } }],
-    });
+  it.each([['feed', fetchPosts], ['single post', () => fetchPost('p1')]])('reports fetch %s errors', async (_label, action) => {
+    axios.get.mockRejectedValue(error);
+    const send = dispatch();
+    await action()(send);
+    expect(send).toHaveBeenCalledWith({ type: POST_ERROR, payload: { msg: 'Server Error', status: 500 } });
   });
 
-  it('dispatches PROFILE_ERROR when getProfiles fails', async () => {
-    axios.get.mockRejectedValue({ response: { statusText: 'Bad Request', status: 400 } });
-    const dispatch = jest.fn();
-
-    await getProfiles()(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith({
-      type: PROFILE_ERROR,
-      payload: { msg: 'Bad Request', status: 400 },
-    });
+  it('updates likes and dislikes', async () => {
+    const send = dispatch();
+    axios.put.mockResolvedValueOnce({ data: [{ user: 'u1' }] }).mockResolvedValueOnce({ data: [{ user: 'u2' }] });
+    await addLike('p1')(send);
+    await removeLike('p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: UPDATE_LIKES, payload: { postId: 'p1', likes: [{ user: 'u1' }] } });
+    expect(send).toHaveBeenCalledWith({ type: UPDATE_DISLIKES, payload: { postId: 'p1', dislikes: [{ user: 'u2' }] } });
   });
 
-  it('gets a profile by userId successfully', async () => {
-    axios.get.mockResolvedValue({ data: { user: { _id: 'abc' } } });
-    const dispatch = jest.fn();
-
-    await getProfileById('abc')(dispatch);
-
-    expect(axios.get).toHaveBeenCalledWith('https://devcorner-api.onrender.com/api/profile/user/abc');
-    expect(dispatch).toHaveBeenCalledWith({ type: GET_PROFILE, payload: { user: { _id: 'abc' } } });
+  it.each([['like', addLike], ['dislike', removeLike]])('reports %s failures', async (_label, action) => {
+    axios.put.mockRejectedValue(error);
+    const send = dispatch();
+    await action('p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: POST_ERROR, payload: { msg: 'Server Error', status: 500 } });
   });
 
-  it('gets GitHub repos successfully', async () => {
-    axios.get.mockResolvedValue({ data: [{ name: 'repo-1' }] });
-    const dispatch = jest.fn();
-
-    await getGithubRepos('alice')(dispatch);
-
-    expect(axios.get).toHaveBeenCalledWith('https://devcorner-api.onrender.com/api/profile/gitRepo/alice');
-    expect(dispatch).toHaveBeenCalledWith({ type: GET_REPOS, payload: [{ name: 'repo-1' }] });
-  });
-
-  it('gets the current profile successfully', async () => {
-    axios.get.mockResolvedValue({ data: { user: { name: 'Current User' } } });
-    const dispatch = jest.fn();
-
-    await getCurrentProfile()(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith({
-      type: GET_PROFILE,
-      payload: { user: { name: 'Current User' } },
-    });
-  });
-
-  it('creates a profile and redirects to dashboard', async () => {
-    axios.post.mockResolvedValue({ data: { profile: 'created' } });
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
+  it('creates a post, dispatches success, and redirects', async () => {
+    axios.post.mockResolvedValue({ data: { _id: 'new', head: 'Hello' } });
+    const send = dispatch();
     const history = { push: jest.fn() };
-
-    await makeProfile({ company: 'Test Co', skills: 'React' }, history)(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: GET_PROFILE, payload: { profile: 'created' } }));
-    expect(history.push).toHaveBeenCalledWith('/dashboard');
+    await addPost({ head: 'Hello', body: 'World' }, history)(send);
+    expect(send).toHaveBeenCalledWith({ type: ADD_POSTS, payload: { _id: 'new', head: 'Hello' } });
+    expect(history.push).toHaveBeenCalledWith('/posts');
   });
 
-  it('dispatches PROFILE_ERROR when makeProfile fails', async () => {
-    axios.post.mockRejectedValue({
-      response: {
-        statusText: 'Bad Request',
-        status: 400,
-        data: { errors: [{ msg: 'Skills are required' }] },
-      },
-    });
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await makeProfile({ company: 'Bad Co' }, { push: jest.fn() })(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: PROFILE_ERROR }));
-  });
-
-  it('adds experience successfully and redirects to dashboard', async () => {
-    axios.put.mockResolvedValue({ data: { experience: ['job'] } });
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
+  it('reports post creation errors without redirecting', async () => {
+    axios.post.mockRejectedValue(error);
+    const send = dispatch();
     const history = { push: jest.fn() };
-
-    await addExperience({ title: 'Front-end dev', company: 'X' }, history)(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: UPDATE_PROFILE, payload: { experience: ['job'] } }));
-    expect(history.push).toHaveBeenCalledWith('/dashboard');
+    await addPost({}, history)(send);
+    expect(send).toHaveBeenCalledWith({ type: POST_ERROR, payload: { msg: 'Server Error', status: 500 } });
+    expect(history.push).not.toHaveBeenCalled();
   });
 
-  it('adds education successfully and redirects to dashboard', async () => {
-    axios.put.mockResolvedValue({ data: { education: ['school'] } });
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-    const history = { push: jest.fn() };
-
-    await addEducation({ school: 'Uni', degree: 'BSc' }, history)(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: UPDATE_PROFILE, payload: { education: ['school'] } }));
-    expect(history.push).toHaveBeenCalledWith('/dashboard');
+  it('deletes post and dispatches refreshed feed', async () => {
+    axios.delete.mockResolvedValue({ data: [] });
+    const send = dispatch();
+    await removePost('p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: GET_POSTS, payload: [] });
   });
 
-  it('deletes experience and education without crashing', async () => {
-    axios.delete.mockResolvedValue({ data: { ok: true } });
-    const dispatch = jest.fn();
-
-    await delExperience('exp-1', { push: jest.fn() })(dispatch);
-    await delEducation('edu-1', { push: jest.fn() })(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: UPDATE_PROFILE, payload: { ok: true } }));
+  it('reports post deletion errors', async () => {
+    axios.delete.mockRejectedValue(error);
+    const send = dispatch();
+    await removePost('p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: POST_ERROR, payload: { msg: 'Server Error', status: 500 } });
   });
 
-  it('deletes account when the user confirms', async () => {
-    window.confirm = jest.fn(() => true);
-    axios.delete.mockResolvedValue({ data: {} });
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
+  it('adds and deletes comments', async () => {
+    const send = dispatch();
+    axios.post.mockResolvedValue({ data: [{ _id: 'c1' }] });
+    axios.delete.mockResolvedValue({ data: [] });
+    await addComment({ body: 'Nice' }, 'p1')(send);
+    await removeComment('p1', 'c1')(send);
+    expect(send).toHaveBeenCalledWith({ type: UPDATE_COMMENTS, payload: [{ _id: 'c1' }] });
+    expect(send).toHaveBeenCalledWith({ type: UPDATE_COMMENTS, payload: [] });
+  });
 
-    await delAccount('user-1')(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith({ type: CLEAR_PROFILE });
-    expect(dispatch).toHaveBeenCalledWith({ type: DELETE_PROFILE });
+  it.each([['comment creation', addComment], ['comment deletion', (data, id) => removeComment(id, 'c1')]])('reports %s errors', async (_label, action) => {
+    axios.post.mockRejectedValue(error);
+    axios.delete.mockRejectedValue(error);
+    const send = dispatch();
+    await action({ body: 'x' }, 'p1')(send);
+    expect(send).toHaveBeenCalledWith({ type: POST_ERROR, payload: { msg: 'Server Error', status: 500 } });
   });
 });

@@ -2,73 +2,32 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
-import { MemoryRouter } from 'react-router-dom';
-import Posts from '../Posts';
+import { MemoryRouter, Route, Switch } from 'react-router-dom';
+import PrivateRoute from '../PrivateRoute';
 
-jest.mock('../../../actions/post', () => ({
-  fetchPosts: jest.fn(),
-}));
+const renderProtected = (auth, initialEntry = '/dashboard') => {
+  const store = createStore((state = { auth }) => state);
+  return render(<Provider store={store}><MemoryRouter initialEntries={[initialEntry]}><Switch>
+    <PrivateRoute exact path="/dashboard" component={() => <div>Dashboard Page</div>} />
+    <Route path="/login" render={() => <div>Login Page</div>} />
+  </Switch></MemoryRouter></Provider>);
+};
 
-describe('Posts integration', () => {
-  it('renders posts and shows the create-post action for authenticated users', () => {
-    const store = createStore((state = {
-      post: {
-        posts: [{
-          _id: 'post-1',
-          head: 'Hello world',
-          body: 'This is a post body',
-          name: 'Alice',
-          avatar: 'https://example.com/avatar.png',
-          user: 'user-1',
-          likes: [],
-          dislikes: [],
-          comments: [],
-          date: '2024-01-01T00:00:00Z',
-        }],
-        loading: false,
-      },
-      auth: {
-        isAuthenticated: true,
-        loading: false,
-        user: { _id: 'user-1' },
-      },
-    }) => state);
-
-    render(
-      <Provider store={store}>
-        <MemoryRouter>
-          <Posts />
-        </MemoryRouter>
-      </Provider>
-    );
-
-    expect(screen.getByText('Posts')).toBeInTheDocument();
-    expect(screen.getByText('Hello world')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create a new post/i })).toBeInTheDocument();
+describe('PrivateRoute integration', () => {
+  it('redirects unauthenticated users after auth loading is complete', () => {
+    renderProtected({ isAuthenticated: false, loading: false });
+    expect(screen.getByText('Login Page')).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard Page')).not.toBeInTheDocument();
   });
 
-  it('hides the create-post action for unauthenticated users', () => {
-    const store = createStore((state = {
-      post: {
-        posts: [],
-        loading: false,
-      },
-      auth: {
-        isAuthenticated: false,
-        loading: false,
-        user: null,
-      },
-    }) => state);
+  it('renders protected route for authenticated users', () => {
+    renderProtected({ isAuthenticated: true, loading: false });
+    expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
+  });
 
-    render(
-      <Provider store={store}>
-        <MemoryRouter>
-          <Posts />
-        </MemoryRouter>
-      </Provider>
-    );
-
-    expect(screen.getByText('Posts')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /create a new post/i })).not.toBeInTheDocument();
+  it('does not redirect while authentication is loading', () => {
+    renderProtected({ isAuthenticated: false, loading: true });
+    expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
+    expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
   });
 });

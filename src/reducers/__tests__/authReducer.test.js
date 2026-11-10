@@ -1,87 +1,41 @@
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { Provider } from 'react-redux';
-import { createStore } from 'redux';
-import { MemoryRouter, Route } from 'react-router-dom';
-import SignUp from '../SignUp';
-import { setAlert } from '../../../actions/alert';
-import { register } from '../../../actions/auth';
+import authReducer from '../auth';
+import {
+  REGISTER_SUCCESS, REGISTER_FAILURE, USER_LOADED, AUTH_ERROR,
+  LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT, DELETE_PROFILE,
+} from '../../actions/constants';
 
-jest.mock('../../../actions/alert', () => ({
-  setAlert: jest.fn(),
-}));
+describe('auth reducer', () => {
+  beforeEach(() => localStorage.clear());
 
-jest.mock('../../../actions/auth', () => ({
-  register: jest.fn(),
-}));
-
-describe('SignUp component', () => {
-  const renderSignUp = (isAuthenticated = false) => {
-    const store = createStore((state = { auth: { isAuthenticated } }) => state);
-
-    render(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/register']}>
-          <Route path="/register" component={SignUp} />
-          <Route path="/dashboard" render={() => <div>Dashboard Page</div>} />
-        </MemoryRouter>
-      </Provider>
-    );
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('shows an alert when passwords do not match', () => {
-    renderSignUp(false);
-
-    fireEvent.change(screen.getByPlaceholderText('Name'), {
-      target: { name: 'name', value: 'Alice' },
-    });
-    fireEvent.change(screen.getByPlaceholderText('Email'), {
-      target: { name: 'email', value: 'alice@test.com' },
-    });
-    fireEvent.change(screen.getByLabelText('Password'), {
-      target: { name: 'password1', value: 'secret123' },
-    });
-    fireEvent.change(screen.getByLabelText('Confirm password'), {
-      target: { name: 'password2', value: 'secret456' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /sign up/i }));
-
-    expect(setAlert).toHaveBeenCalledWith('Password do not match', 'danger');
-  });
-
-  it('registers the user when passwords match', () => {
-    renderSignUp(false);
-
-    fireEvent.change(screen.getByPlaceholderText('Name'), {
-      target: { name: 'name', value: 'Alice' },
-    });
-    fireEvent.change(screen.getByPlaceholderText('Email'), {
-      target: { name: 'email', value: 'alice@test.com' },
-    });
-    fireEvent.change(screen.getByLabelText('Password'), {
-      target: { name: 'password1', value: 'secret123' },
-    });
-    fireEvent.change(screen.getByLabelText('Confirm password'), {
-      target: { name: 'password2', value: 'secret123' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /sign up/i }));
-
-    expect(register).toHaveBeenCalledWith({
-      name: 'Alice',
-      email: 'alice@test.com',
-      password: 'secret123',
+  it('initializes from localStorage token', () => {
+    localStorage.setItem('token', 'stored-token');
+    expect(authReducer(undefined, { type: '@@INIT' })).toEqual({
+      token: 'stored-token', isAuthenticated: null, loading: true, user: null,
     });
   });
 
-  it('redirects to the dashboard when the user is authenticated', () => {
-    renderSignUp(true);
+  it.each([REGISTER_SUCCESS, LOGIN_SUCCESS])('%s stores token and authenticates', (type) => {
+    const payload = { token: 'fresh-token', user: { name: 'Alice' } };
+    const state = authReducer(undefined, { type, payload });
+    expect(localStorage.getItem('token')).toBe('fresh-token');
+    expect(state).toMatchObject({ ...payload, isAuthenticated: true, loading: false });
+  });
 
-    expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
+  it('marks user authenticated after loading', () => {
+    expect(authReducer(undefined, { type: USER_LOADED, payload: { name: 'Bob' } }))
+      .toMatchObject({ isAuthenticated: true, loading: false, user: { name: 'Bob' } });
+  });
+
+  it.each([REGISTER_FAILURE, AUTH_ERROR, LOGIN_FAILED, LOGOUT, DELETE_PROFILE])('%s clears auth', (type) => {
+    localStorage.setItem('token', 'old-token');
+    expect(authReducer(undefined, { type })).toMatchObject({
+      token: null, isAuthenticated: false, loading: false, user: '',
+    });
+    expect(localStorage.getItem('token')).toBeNull();
+  });
+
+  it('returns the original state for an unknown action', () => {
+    const current = { token: 'x', isAuthenticated: true, loading: false, user: {} };
+    expect(authReducer(current, { type: 'UNKNOWN' })).toBe(current);
   });
 });

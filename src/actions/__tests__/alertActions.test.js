@@ -1,30 +1,22 @@
-import alertReducer from '../alert';
-import { SET_ALERT, REMOVE_ALERT } from '../../actions/constants';
+import { setAlert } from '../alert';
+import { SET_ALERT, REMOVE_ALERT } from '../constants';
 
-describe('alert reducer', () => {
-  it('adds an alert when SET_ALERT is dispatched', () => {
-    const state = alertReducer(undefined, {
+jest.mock('uuid', () => ({ v4: () => 'fixed-id' }));
+
+describe('setAlert action', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => { jest.runOnlyPendingTimers(); jest.useRealTimers(); });
+
+  it('dispatches the alert and removes it after three seconds', () => {
+    const dispatch = jest.fn();
+    setAlert('Saved', 'success')(dispatch);
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
       type: SET_ALERT,
-      payload: { id: '1', msg: 'Oops', alertType: 'danger' },
+      payload: { id: 'fixed-id', msg: 'Saved', alertType: 'success' },
     });
-
-    expect(state).toEqual([{ id: '1', msg: 'Oops', alertType: 'danger' }]);
-  });
-
-  it('removes the matching alert when REMOVE_ALERT is dispatched', () => {
-    const state = alertReducer(
-      [
-        { id: '1', msg: 'One', alertType: 'danger' },
-        { id: '2', msg: 'Two', alertType: 'success' },
-      ],
-      { type: REMOVE_ALERT, payload: '1' }
-    );
-
-    expect(state).toEqual([{ id: '2', msg: 'Two', alertType: 'success' }]);
-  });
-
-  it('returns the current state for unknown actions', () => {
-    const state = [{ id: 'abc', msg: 'Keep', alertType: 'info' }];
-    expect(alertReducer(state, { type: 'UNKNOWN' })).toBe(state);
+    jest.advanceTimersByTime(2999);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    expect(dispatch).toHaveBeenNthCalledWith(2, { type: REMOVE_ALERT, payload: 'fixed-id' });
   });
 });

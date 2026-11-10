@@ -1,63 +1,36 @@
-import profileReducer from '../profile';
-import {
-  GET_PROFILE,
-  PROFILE_ERROR,
-  CLEAR_PROFILE,
-  UPDATE_PROFILE,
-  GET_ALL_PROFILES,
-  GET_REPOS,
-} from '../../actions/constants';
+import postReducer from '../post';
+import { GET_POSTS, GET_POST, POST_ERROR, UPDATE_LIKES, UPDATE_DISLIKES, ADD_POSTS, UPDATE_COMMENTS } from '../../actions/constants';
 
-describe('profile reducer', () => {
-  it('returns the default state', () => {
-    const state = profileReducer(undefined, { type: '@@INIT' });
-
-    expect(state).toEqual({
-      profile: null,
-      profiles: [],
-      repos: [],
-      loading: true,
-      error: {},
-    });
+describe('post reducer', () => {
+  it('returns initial state and preserves it for unknown actions', () => {
+    const initial = postReducer(undefined, { type: '@@INIT' });
+    expect(initial).toEqual({ posts: [], post: null, loading: true, error: {} });
+    expect(postReducer(initial, { type: 'UNKNOWN' })).toBe(initial);
   });
 
-  it('stores the current profile for GET_PROFILE and UPDATE_PROFILE', () => {
-    const payload = { user: { name: 'Alice' }, skills: ['React', 'Node'] };
-
-    const state = profileReducer(undefined, { type: GET_PROFILE, payload });
-    const updated = profileReducer(state, { type: UPDATE_PROFILE, payload: { ...payload, skills: ['React'] } });
-
-    expect(state).toMatchObject({ profile: payload, loading: false });
-    expect(updated).toMatchObject({ profile: { skills: ['React'] }, loading: false });
+  it('loads posts, creates post at front, and loads a single post', () => {
+    const state = postReducer(undefined, { type: GET_POSTS, payload: [{ _id: 'a' }] });
+    expect(state).toMatchObject({ posts: [{ _id: 'a' }], loading: false });
+    const added = postReducer(state, { type: ADD_POSTS, payload: { _id: 'b' } });
+    expect(added.posts.map(({ _id }) => _id)).toEqual(['b', 'a']);
+    expect(postReducer(added, { type: GET_POST, payload: { _id: 'a' } })).toMatchObject({ post: { _id: 'a' }, loading: false });
   });
 
-  it('stores all profiles and repos', () => {
-    const profilesState = profileReducer(undefined, {
-      type: GET_ALL_PROFILES,
-      payload: [{ _id: '1' }, { _id: '2' }],
-    });
-
-    const reposState = profileReducer(profilesState, {
-      type: GET_REPOS,
-      payload: [{ name: 'repo-1' }],
-    });
-
-    expect(profilesState).toMatchObject({ profiles: [{ _id: '1' }, { _id: '2' }], loading: false });
-    expect(reposState).toMatchObject({ repos: [{ name: 'repo-1' }], loading: false });
+  it('stores errors and updates only the matching post likes/dislikes', () => {
+    const posts = [{ _id: 'one', likes: [], dislikes: [] }, { _id: 'two', likes: [], dislikes: [] }];
+    const initial = { posts, post: null, loading: true, error: {} };
+    const likes = postReducer(initial, { type: UPDATE_LIKES, payload: { postId: 'one', likes: ['u'] } });
+    expect(likes.posts[0].likes).toEqual(['u']);
+    expect(likes.posts[1]).toEqual(posts[1]);
+    const dislikes = postReducer(likes, { type: UPDATE_DISLIKES, payload: { postId: 'one', dislikes: ['v'] } });
+    expect(dislikes.posts[0].dislikes).toEqual(['v']);
+    expect(postReducer(initial, { type: POST_ERROR, payload: { status: 500 } })).toMatchObject({ error: { status: 500 }, loading: false });
   });
 
-  it('stores the error payload and clears profile state', () => {
-    const errorState = profileReducer(undefined, {
-      type: PROFILE_ERROR,
-      payload: { msg: 'Request failed', status: 500 },
+  it('updates comments on the current post', () => {
+    const state = postReducer({ posts: [], post: { _id: 'a', comments: [] }, loading: true, error: {} }, {
+      type: UPDATE_COMMENTS, payload: [{ _id: 'c' }],
     });
-
-    expect(errorState).toMatchObject({
-      loading: false,
-      error: { msg: 'Request failed', status: 500 },
-    });
-
-    const cleared = profileReducer(undefined, { type: CLEAR_PROFILE });
-    expect(cleared).toEqual({});
+    expect(state).toMatchObject({ post: { _id: 'a', comments: [{ _id: 'c' }] }, loading: false });
   });
 });

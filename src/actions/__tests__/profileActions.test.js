@@ -1,127 +1,113 @@
 import axios from 'axios';
-import { loadUser, register, login, logout } from '../auth';
 import {
-  USER_LOADED,
-  AUTH_ERROR,
-  REGISTER_SUCCESS,
-  REGISTER_FAILURE,
-  LOGIN_SUCCESS,
-  LOGIN_FAILED,
-  LOGOUT,
-  CLEAR_PROFILE,
-} from '../constants';
+  getProfiles, getProfileById, getGithubRepos, getCurrentProfile, makeProfile,
+  addExperience, addEducation, delExperience, delEducation, delAccount,
+} from '../profile';
+import { GET_ALL_PROFILES, PROFILE_ERROR, GET_PROFILE, GET_REPOS, UPDATE_PROFILE, CLEAR_PROFILE, DELETE_PROFILE } from '../constants';
 
 jest.mock('axios');
 
-describe('auth actions', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    localStorage.clear();
+describe('profile actions', () => {
+  let originalConfirm;
+  beforeEach(() => { jest.clearAllMocks(); originalConfirm = window.confirm; });
+  afterEach(() => { window.confirm = originalConfirm; });
+  const dispatch = () => jest.fn();
+
+  it('fetches profiles, individual profile, repos, and current profile', async () => {
+    const send = dispatch();
+    axios.get.mockResolvedValueOnce({ data: [{ _id: 'p' }] })
+      .mockResolvedValueOnce({ data: { user: { _id: 'u' } } })
+      .mockResolvedValueOnce({ data: [{ name: 'repo' }] })
+      .mockResolvedValueOnce({ data: { user: { name: 'Alice' } } });
+    await getProfiles()(send);
+    await getProfileById('u')(send);
+    await getGithubRepos('alice')(send);
+    await getCurrentProfile()(send);
+    expect(send).toHaveBeenCalledWith({ type: GET_ALL_PROFILES, payload: [{ _id: 'p' }] });
+    expect(send).toHaveBeenCalledWith({ type: GET_PROFILE, payload: { user: { _id: 'u' } } });
+    expect(send).toHaveBeenCalledWith({ type: GET_REPOS, payload: [{ name: 'repo' }] });
+    expect(axios.get).toHaveBeenCalledWith('https://devcorner-api.onrender.com/api/profile/gitRepo/alice');
   });
 
-  it('loads the current user successfully', async () => {
-    localStorage.setItem('token', 'abc123');
-    axios.get.mockResolvedValue({ data: { name: 'Alice' } });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await loadUser()(dispatch);
-
-    expect(axios.get).toHaveBeenCalledWith('https://devcorner-api.onrender.com/api/auth');
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: USER_LOADED, payload: { name: 'Alice' } }));
+  it.each([
+    ['getProfiles', () => getProfiles()],
+    ['getProfileById', () => getProfileById('u')],
+    ['getGithubRepos', () => getGithubRepos('alice')],
+    ['getCurrentProfile', () => getCurrentProfile()],
+  ])('%s dispatches profile error on API failure', async (_label, action) => {
+    axios.get.mockRejectedValue({ response: { statusText: 'Not Found', status: 404 } });
+    const send = dispatch();
+    await action()(send);
+    expect(send).toHaveBeenCalledWith({ type: PROFILE_ERROR, payload: { msg: 'Not Found', status: 404 } });
   });
 
-  it('dispatches AUTH_ERROR when loading the user fails', async () => {
-    localStorage.setItem('token', 'abc123');
-    axios.get.mockRejectedValue({ response: { statusText: 'Unauthorized', status: 401 } });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await loadUser()(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith({ type: AUTH_ERROR });
+  it('creates a profile, alerts, and redirects only for create', async () => {
+    axios.post.mockResolvedValue({ data: { _id: 'profile' } });
+    const send = dispatch();
+    const history = { push: jest.fn() };
+    await makeProfile({ skills: 'React' }, history)(send);
+    expect(send).toHaveBeenCalledWith({ type: GET_PROFILE, payload: { _id: 'profile' } });
+    expect(history.push).toHaveBeenCalledWith('/dashboard');
+    history.push.mockClear();
+    await makeProfile({ skills: 'React' }, history, true)(send);
+    expect(history.push).not.toHaveBeenCalled();
   });
 
-  it('registers the user successfully', async () => {
-    axios.post.mockResolvedValue({ data: { token: 'token-123' } });
-    axios.get.mockResolvedValue({ data: { name: 'Alice' } });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await register({ name: 'Alice', email: 'alice@test.com', password: 'secret123' })(dispatch);
-
-    expect(axios.post).toHaveBeenCalledWith(
-      'https://devcorner-api.onrender.com/api/users',
-      JSON.stringify({ name: 'Alice', email: 'alice@test.com', password: 'secret123' }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: REGISTER_SUCCESS }));
+  it('handles profile validation failure', async () => {
+    axios.post.mockRejectedValue({ response: { statusText: 'Bad Request', status: 400, data: { errors: [{ msg: 'Required' }] } } });
+    const send = dispatch();
+    await makeProfile({}, { push: jest.fn() })(send);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: PROFILE_ERROR }));
   });
 
-  it('dispatches REGISTER_FAILURE when registration fails', async () => {
-    axios.post.mockRejectedValue({
-      response: { data: { errors: [{ msg: 'User already exists' }] } },
-    });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await register({ name: 'Alice', email: 'alice@test.com', password: 'bad' })(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: REGISTER_FAILURE }));
+  it('adds experience and education successfully', async () => {
+    axios.put.mockResolvedValueOnce({ data: { experience: [{ id: 'e' }] } }).mockResolvedValueOnce({ data: { education: [{ id: 'd' }] } });
+    const send = dispatch();
+    const history = { push: jest.fn() };
+    await addExperience({ title: 'Dev' }, history)(send);
+    await addEducation({ school: 'Uni' }, history)(send);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: UPDATE_PROFILE, payload: { experience: [{ id: 'e' }] } }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: UPDATE_PROFILE, payload: { education: [{ id: 'd' }] } }));
+    expect(history.push).toHaveBeenCalledTimes(2);
   });
 
-  it('logs in successfully', async () => {
-    axios.post.mockResolvedValue({ data: { token: 'login-token' } });
-    axios.get.mockResolvedValue({ data: { name: 'Logged User' } });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await login({ email: 'user@test.com', password: 'secret' })(dispatch);
-
-    expect(axios.post).toHaveBeenCalledWith(
-      'https://devcorner-api.onrender.com/api/auth',
-      JSON.stringify({ email: 'user@test.com', password: 'secret' }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: LOGIN_SUCCESS }));
+  it.each([['experience', addExperience], ['education', addEducation]])('handles %s validation failure', async (_label, action) => {
+    axios.put.mockRejectedValue({ response: { statusText: 'Bad Request', status: 400, data: { errors: [{ msg: 'Invalid input' }] } } });
+    const send = dispatch();
+    await action({}, { push: jest.fn() })(send);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: PROFILE_ERROR }));
   });
 
-  it('dispatches LOGIN_FAILED when login fails', async () => {
-    axios.post.mockRejectedValue({
-      response: { data: 'Invalid credentials' },
-    });
-
-    const dispatch = jest.fn((action) => {
-      if (typeof action === 'function') return action(dispatch);
-      return action;
-    });
-
-    await login({ email: 'user@test.com', password: 'wrong' })(dispatch);
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: LOGIN_FAILED }));
+  it('deletes experience and education entries', async () => {
+    axios.delete.mockResolvedValue({ data: { updated: true } });
+    const send = dispatch();
+    await delExperience('e1', {})(send);
+    await delEducation('d1', {})(send);
+    expect(axios.delete).toHaveBeenCalledWith('https://devcorner-api.onrender.com/api/profile/experience/del/e1');
+    expect(send).toHaveBeenCalledWith({ type: UPDATE_PROFILE, payload: { updated: true } });
   });
 
-  it('clears profile and logout state', () => {
-    const dispatch = jest.fn();
+  it.each([['experience', delExperience], ['education', delEducation]])('dispatches error deleting %s', async (_label, action) => {
+    axios.delete.mockRejectedValue({ response: { statusText: 'Forbidden', status: 403 } });
+    const send = dispatch();
+    await action('id', {})(send);
+    expect(send).toHaveBeenCalledWith({ type: PROFILE_ERROR, payload: { msg: 'Forbidden', status: 403 } });
+  });
 
-    logout()(dispatch);
+  it('does not delete account when confirmation is declined', async () => {
+    window.confirm = jest.fn(() => false);
+    const send = dispatch();
+    await delAccount('u')(send);
+    expect(axios.delete).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
 
-    expect(dispatch).toHaveBeenNthCalledWith(1, { type: CLEAR_PROFILE });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { type: LOGOUT });
+  it('deletes account after confirmation and dispatches cleanup', async () => {
+    window.confirm = jest.fn(() => true);
+    axios.delete.mockResolvedValue({ data: {} });
+    const send = dispatch();
+    await delAccount('u')(send);
+    expect(send).toHaveBeenCalledWith({ type: CLEAR_PROFILE });
+    expect(send).toHaveBeenCalledWith({ type: DELETE_PROFILE });
   });
 });

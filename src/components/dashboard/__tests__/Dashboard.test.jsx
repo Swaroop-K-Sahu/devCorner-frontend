@@ -1,45 +1,44 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Switch } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
-import PrivateRoute from '../PrivateRoute';
+import { MemoryRouter } from 'react-router-dom';
+import Dashboard from '../Dashboard';
+import { getCurrentProfile, delAccount } from '../../../actions/profile';
 
-const buildStore = (authState) =>
-  createStore((state = { auth: authState }) => state);
+jest.mock('../../../actions/profile', () => ({ getCurrentProfile: jest.fn(), delAccount: jest.fn() }));
 
-describe('PrivateRoute integration', () => {
-  it('redirects unauthenticated users to login', () => {
-    const store = buildStore({ isAuthenticated: false, loading: false });
+const renderDashboard = (profile, loading = false) => {
+  const state = {
+    auth: { user: { _id: 'user-1', name: 'Alice' } },
+    profile: { profile, loading },
+  };
+  const store = createStore((current = state) => current);
+  return render(<Provider store={store}><MemoryRouter><Dashboard /></MemoryRouter></Provider>);
+};
 
-    render(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/dashboard']}>
-          <Switch>
-            <PrivateRoute exact path="/dashboard" component={() => <div>Dashboard Page</div>} />
-            <Route path="/login" render={() => <div>Login Page</div>} />
-          </Switch>
-        </MemoryRouter>
-      </Provider>
-    );
+describe('Dashboard integration', () => {
+  beforeEach(() => jest.clearAllMocks());
 
-    expect(screen.getByText('Login Page')).toBeInTheDocument();
+  it('fetches profile and shows spinner while waiting', () => {
+    renderDashboard(null, true);
+    expect(getCurrentProfile).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.fa-spin')).toBeInTheDocument();
   });
 
-  it('renders the protected component for authenticated users', () => {
-    const store = buildStore({ isAuthenticated: true, loading: false });
+  it('offers profile creation when user has no profile', () => {
+    renderDashboard(null);
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText(/hello alice/i)).toBeInTheDocument();
+    expect(screen.getByText(/click the below button to create your profile/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /let's go/i }).closest('a')).toHaveAttribute('href', '/createProfile');
+  });
 
-    render(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/dashboard']}>
-          <Switch>
-            <PrivateRoute exact path="/dashboard" component={() => <div>Dashboard Page</div>} />
-            <Route path="/login" render={() => <div>Login Page</div>} />
-          </Switch>
-        </MemoryRouter>
-      </Provider>
-    );
-
-    expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
+  it('renders dashboard details and calls account deletion action', () => {
+    renderDashboard({ user: { avatar: 'https://example.com/avatar.png' }, experience: [], education: [] });
+    expect(screen.getByText('Experience Credentials')).toBeInTheDocument();
+    expect(screen.getByText('Education Details')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /delete my account/i }));
+    expect(delAccount).toHaveBeenCalledWith('user-1');
   });
 });
